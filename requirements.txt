@@ -1,0 +1,4 @@
+opencv-python
+numpy
+tqdm
+streamlit  # alleen nodig voor de UI, anders mag je dit weglaten

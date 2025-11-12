@@ -1,11 +1,11 @@
-# app.py — Color Rise (stabiele weergave via PIL)
-# Zwart-wit afbeeldingen automatisch inkleuren met OpenCV DNN + veilige beeldafhandeling
+# app.py — Color Rise (stabiele versie met PNG-bytes weergave)
+# Zwart-wit afbeeldingen automatisch inkleuren met OpenCV DNN
 
-import os
+import os, io
 import numpy as np
 import streamlit as st
 from urllib.request import Request, urlopen
-from PIL import Image  # <-- voor robuuste weergave
+from PIL import Image
 
 # ========== MODEL PADEN ==========
 MODEL_DIR = "models"
@@ -84,20 +84,24 @@ def colorize(img_bgr: np.ndarray, net, boost: float = 1.15) -> np.ndarray:
         out_bgr = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
     return out_bgr
 
-# ========== VEILIG TONEN: via PIL ==========
+# ========== VEILIG TONEN via PNG-BYTES ==========
 def show_bgr(img_bgr: np.ndarray, caption: str):
-    """
-    Streamlit verwacht RGB; we converteren BGR->RGB met NumPy slicing en geven via PIL weer.
-    Dit vermijdt TypeErrors door cv2.cvtColor of channels-kwarg verschillen.
-    """
+    """Toon BGR-afbeelding veilig in Streamlit via PIL-PNG-bytes."""
+    if img_bgr is None:
+        st.error("Geen afbeelding om te tonen.");  return
     if img_bgr.ndim != 3 or img_bgr.shape[2] != 3:
-        st.error(f"Onverwacht kanaalformaat bij tonen: shape={img_bgr.shape}")
-        return
-    img_rgb = img_bgr[:, :, ::-1]  # BGR -> RGB
-    if img_rgb.dtype != np.uint8:
-        img_rgb = np.clip(img_rgb, 0, 255).astype(np.uint8)
+        st.error(f"Onverwacht kanaalformaat: {img_bgr.shape}");  return
+    h, w = img_bgr.shape[:2]
+    if h == 0 or w == 0:
+        st.error("Afbeelding heeft 0×0 afmetingen.");  return
+
+    img_rgb = img_bgr[:, :, ::-1]
+    img_rgb = np.clip(img_rgb, 0, 255).astype(np.uint8)
     pil_img = Image.fromarray(img_rgb, mode="RGB")
-    st.image(pil_img, caption=caption, use_container_width=True)
+    buf = io.BytesIO()
+    pil_img.save(buf, format="PNG")
+    buf.seek(0)
+    st.image(buf, caption=caption, use_container_width=True)
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Color Rise", page_icon="🎨", layout="centered")
@@ -105,43 +109,35 @@ st.title("🎨 Zwart-wit → kleur (OpenCV DNN)")
 
 boost = st.sidebar.slider("Saturatie-boost", 1.0, 1.4, 1.15, 0.01)
 
-# Laad model
+# Model laden
 try:
     net = load_net()
     st.sidebar.success("Model geladen ✅")
 except FileNotFoundError as e:
-    st.sidebar.error(str(e))
-    st.stop()
+    st.sidebar.error(str(e));  st.stop()
 except Exception as e:
-    st.sidebar.error(f"Kon model niet laden: {e}")
-    st.stop()
+    st.sidebar.error(f"Kon model niet laden: {e}");  st.stop()
 
 # ========== UPLOAD + VEILIGE AFBEELDINGSHANDLING ==========
-file = st.file_uploader("Upload een **zwart-wit** afbeelding", type=["jpg","jpeg","png","bmp","tiff","webp"])
+file = st.file_uploader("Upload een zwart-wit afbeelding", type=["jpg","jpeg","png","bmp","tiff","webp"])
 
 if file is not None:
     import cv2
-
-    # Lees bytes één keer en decodeer (kan 1, 3 of 4 kanalen zijn)
     data = np.frombuffer(file.read(), dtype=np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
-
     if img is None:
-        st.error("Kon de afbeelding niet decoderen. Probeer een andere JPG/PNG.")
-        st.stop()
+        st.error("Kon de afbeelding niet decoderen.");  st.stop()
 
-    # Normaliseer kanaalformaat naar 3-kanaals BGR
-    if img.ndim == 2:  # grijs
+    if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    elif img.ndim == 3 and img.shape[2] == 4:  # BGRA → BGR
+    elif img.ndim == 3 and img.shape[2] == 4:
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
     elif img.ndim == 3 and img.shape[2] == 3:
         pass
     else:
-        st.error(f"Onverwacht kanaalformaat: {img.shape}")
-        st.stop()
+        st.error(f"Onverwacht kanaalformaat: {img.shape}");  st.stop()
 
-    # Beperk extreem grote beelden
+    # Schaal grote beelden
     max_side = 2048
     h, w = img.shape[:2]
     if max(h, w) > max_side:
@@ -150,8 +146,7 @@ if file is not None:
 
     img = np.clip(img, 0, 255).astype(np.uint8)
 
-    # Inkleuren
-    with st.spinner("Inkleuren..."):
+    with st.spinner("Inkleuren…"):
         colored = colorize(img, net, boost)
 
     col1, col2 = st.columns(2)
@@ -160,7 +155,6 @@ if file is not None:
     with col2:
         show_bgr(colored, "Ingekleurd")
 
-    # Download-knop
     ok, buf = cv2.imencode(".jpg", colored, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
     if ok:
         st.download_button(
@@ -170,7 +164,8 @@ if file is not None:
             mime="image/jpeg"
         )
 
-st.caption("💡 Tip: modelbestanden ontbreken? Plaats ze in ./models/ of upload ze via de UI.")
+st.caption("💡 Tip: plaats de modelbestanden in ./models of upload ze via de UI.")
+
 
 
 

@@ -1,7 +1,7 @@
-# app.py — Color Rise (stabiele versie met PNG-bytes weergave)
+# app.py — Color Rise (ultra-stabiele weergave via base64/HTML)
 # Zwart-wit afbeeldingen automatisch inkleuren met OpenCV DNN
 
-import os, io
+import os, io, base64
 import numpy as np
 import streamlit as st
 from urllib.request import Request, urlopen
@@ -84,9 +84,15 @@ def colorize(img_bgr: np.ndarray, net, boost: float = 1.15) -> np.ndarray:
         out_bgr = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
     return out_bgr
 
-# ========== VEILIG TONEN via PNG-BYTES ==========
+# ========== VEILIG TONEN via base64/HTML ==========
 def show_bgr(img_bgr: np.ndarray, caption: str):
-    """Toon BGR-afbeelding veilig in Streamlit via PIL-PNG-bytes."""
+    """
+    Toon BGR-afbeelding superstabiel:
+    - BGR -> RGB
+    - encodeer PNG -> base64
+    - embed als <img src="data:..."> via st.markdown
+    Zo vermijden we alle TypeError-paden in st.image.
+    """
     if img_bgr is None:
         st.error("Geen afbeelding om te tonen.");  return
     if img_bgr.ndim != 3 or img_bgr.shape[2] != 3:
@@ -100,8 +106,15 @@ def show_bgr(img_bgr: np.ndarray, caption: str):
     pil_img = Image.fromarray(img_rgb, mode="RGB")
     buf = io.BytesIO()
     pil_img.save(buf, format="PNG")
-    buf.seek(0)
-    st.image(buf, caption=caption, use_container_width=True)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    html = f"""
+    <figure style="margin:0">
+      <img src="data:image/png;base64,{b64}" style="width:100%;height:auto;border-radius:12px" />
+      <figcaption style="text-align:center;color:#666;margin-top:6px">{caption}</figcaption>
+    </figure>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Color Rise", page_icon="🎨", layout="centered")
@@ -128,6 +141,7 @@ if file is not None:
     if img is None:
         st.error("Kon de afbeelding niet decoderen.");  st.stop()
 
+    # Normaliseer kanaalformaat naar 3-kanaals BGR
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     elif img.ndim == 3 and img.shape[2] == 4:
@@ -155,6 +169,7 @@ if file is not None:
     with col2:
         show_bgr(colored, "Ingekleurd")
 
+    # Download-knop
     ok, buf = cv2.imencode(".jpg", colored, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
     if ok:
         st.download_button(
@@ -165,6 +180,7 @@ if file is not None:
         )
 
 st.caption("💡 Tip: plaats de modelbestanden in ./models of upload ze via de UI.")
+
 
 
 

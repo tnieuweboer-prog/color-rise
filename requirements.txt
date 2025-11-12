@@ -1,4 +1,4 @@
+python==3.11
 opencv-python-headless==4.10.0.84
 numpy
-tqdm
-streamlit  # alleen nodig voor de UI, anders mag je dit weglaten
+streamlit

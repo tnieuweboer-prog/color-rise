@@ -1,9 +1,11 @@
-# app.py — Color Rise
+# app.py — Color Rise (stabiele weergave via PIL)
 # Zwart-wit afbeeldingen automatisch inkleuren met OpenCV DNN + veilige beeldafhandeling
+
 import os
 import numpy as np
 import streamlit as st
 from urllib.request import Request, urlopen
+from PIL import Image  # <-- voor robuuste weergave
 
 # ========== MODEL PADEN ==========
 MODEL_DIR = "models"
@@ -82,17 +84,20 @@ def colorize(img_bgr: np.ndarray, net, boost: float = 1.15) -> np.ndarray:
         out_bgr = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
     return out_bgr
 
-# ========== VEILIG TONEN: BGR -> RGB ZONDER cv2 ==========
+# ========== VEILIG TONEN: via PIL ==========
 def show_bgr(img_bgr: np.ndarray, caption: str):
     """
-    Streamlit verwacht standaard RGB. We converteren BGR -> RGB met NumPy slicing
-    om compat-issues met cv2.cvtColor of channels= te vermijden.
+    Streamlit verwacht RGB; we converteren BGR->RGB met NumPy slicing en geven via PIL weer.
+    Dit vermijdt TypeErrors door cv2.cvtColor of channels-kwarg verschillen.
     """
     if img_bgr.ndim != 3 or img_bgr.shape[2] != 3:
         st.error(f"Onverwacht kanaalformaat bij tonen: shape={img_bgr.shape}")
         return
-    img_rgb = img_bgr[:, :, ::-1]  # BGR -> RGB zonder OpenCV
-    st.image(img_rgb, caption=caption, use_container_width=True)
+    img_rgb = img_bgr[:, :, ::-1]  # BGR -> RGB
+    if img_rgb.dtype != np.uint8:
+        img_rgb = np.clip(img_rgb, 0, 255).astype(np.uint8)
+    pil_img = Image.fromarray(img_rgb, mode="RGB")
+    st.image(pil_img, caption=caption, use_container_width=True)
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Color Rise", page_icon="🎨", layout="centered")
@@ -155,6 +160,7 @@ if file is not None:
     with col2:
         show_bgr(colored, "Ingekleurd")
 
+    # Download-knop
     ok, buf = cv2.imencode(".jpg", colored, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
     if ok:
         st.download_button(
@@ -165,6 +171,7 @@ if file is not None:
         )
 
 st.caption("💡 Tip: modelbestanden ontbreken? Plaats ze in ./models/ of upload ze via de UI.")
+
 
 
 

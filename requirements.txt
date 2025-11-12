@@ -1,4 +1,5 @@
-python==3.11
+streamlit==1.39.0
 opencv-python-headless==4.10.0.84
-numpy
-streamlit
+numpy==1.26.4
+tqdm==4.66.4
+

@@ -5,7 +5,6 @@ import os
 import numpy as np
 import streamlit as st
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 
 # ========== MODEL PADEN ==========
 MODEL_DIR = "models"
@@ -13,7 +12,7 @@ PROTO = os.path.join(MODEL_DIR, "colorization_deploy_v2.prototxt")
 MODEL = os.path.join(MODEL_DIR, "colorization_release_v2.caffemodel")
 PTS   = os.path.join(MODEL_DIR, "pts_in_hull.npy")
 
-# Mirrors (gebruik de OpenVINO mirror — werkt betrouwbaar)
+# Mirrors (OpenVINO mirror – stabiel)
 URLS = {
     "prototxt": [
         "https://storage.openvinotoolkit.org/repositories/datumaro/models/colorization/colorization_deploy_v2.prototxt"
@@ -28,7 +27,6 @@ URLS = {
 
 # ========== DOWNLOAD HELPERS ==========
 def _try_download(url: str, dst_path: str) -> bool:
-    """Download een bestand met User-Agent header."""
     try:
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -39,12 +37,9 @@ def _try_download(url: str, dst_path: str) -> bool:
         return False
 
 def _ensure_files():
-    for name, mirrors in URLS.items():
-        dst = {
-            "prototxt": PROTO,
-            "caffemodel": MODEL,
-            "pts_in_hull": PTS
-        }[name]
+    mapping = {"prototxt": PROTO, "caffemodel": MODEL, "pts_in_hull": PTS}
+    for key, mirrors in URLS.items():
+        dst = mapping[key]
         if os.path.exists(dst) and os.path.getsize(dst) > 0:
             continue
         for link in mirrors:
@@ -111,7 +106,7 @@ file = st.file_uploader("Upload een **zwart-wit** afbeelding", type=["jpg","jpeg
 if file is not None:
     import cv2
 
-    # Lees bytes veilig
+    # Lees bytes één keer en decodeer (kan 1, 3 of 4 kanalen zijn)
     data = np.frombuffer(file.read(), dtype=np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
 
@@ -119,7 +114,7 @@ if file is not None:
         st.error("Kon de afbeelding niet decoderen. Probeer een andere JPG/PNG.")
         st.stop()
 
-    # Normaliseer kanaalformaat
+    # Normaliseer kanaalformaat naar 3-kanaals BGR
     if img.ndim == 2:  # grijs
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     elif img.ndim == 3 and img.shape[2] == 4:  # BGRA → BGR
@@ -130,7 +125,7 @@ if file is not None:
         st.error(f"Onverwacht kanaalformaat: {img.shape}")
         st.stop()
 
-    # Beperk te grote afbeeldingen
+    # Beperk extreem grote beelden
     max_side = 2048
     h, w = img.shape[:2]
     if max(h, w) > max_side:
@@ -139,17 +134,17 @@ if file is not None:
 
     img = np.clip(img, 0, 255).astype(np.uint8)
 
-    # Kleur het beeld
+    # Inkleuren
     with st.spinner("Inkleuren..."):
         colored = colorize(img, net, boost)
 
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Origineel")
-        st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), use_container_width=True)
+        st.image(img, channels="BGR", use_container_width=True)       # ⬅️ geen cvtColor
     with col2:
         st.subheader("Ingekleurd")
-        st.image(cv2.cvtColor(colored, cv2.COLOR_BGR2RGB), use_container_width=True)
+        st.image(colored, channels="BGR", use_container_width=True)   # ⬅️ geen cvtColor
 
     ok, buf = cv2.imencode(".jpg", colored, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
     if ok:
@@ -160,5 +155,6 @@ if file is not None:
             mime="image/jpeg"
         )
 
-st.caption("💡 Tip: modelbestanden ontbreken? Plaats ze in ./models/ of upload ze via de sidebar.")
+st.caption("💡 Tip: modelbestanden ontbreken? Plaats ze in ./models/ of upload ze via de UI.")
+
 
